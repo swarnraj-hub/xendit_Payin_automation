@@ -2057,12 +2057,17 @@ async def xp_submit_activity_export(page, business_id: str) -> bool:
         await page.wait_for_timeout(300)
     if not modal_appeared:
         await page.wait_for_timeout(2000)
-    # Wait for date input fields to render (important for first account in headless)
-    try:
-        await page.wait_for_selector('input[id^="rw_"]', timeout=8000)
-    except Exception:
-        pass
-    await page.wait_for_timeout(1000)
+    # Wait for date input fields to render AND have pre-filled values (important for headless)
+    for _rw_wait in range(20):
+        rw_filled = await page.evaluate("""
+            () => [...document.querySelectorAll('input[id^="rw_"]')]
+                    .filter(el => el.offsetParent !== null &&
+                                  /\d{2}\/\d{2}\/\d{4}/.test((el.value || '').trim()))
+                    .length
+        """)
+        if rw_filled >= 2:
+            break
+        await page.wait_for_timeout(500)
     await ss(page, f"E2c_export_open_{business_id[:8]}")
 
     # Set date range using the calendar icon → month navigation → day click.
