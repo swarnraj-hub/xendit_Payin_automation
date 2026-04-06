@@ -1,0 +1,61 @@
+name: Daily Xendit Automation
+
+on:
+  schedule:
+    # 02:30 UTC = 08:00 AM IST (UTC+5:30) every day
+    - cron: '30 2 * * *'
+  workflow_dispatch:   # allow manual trigger from GitHub UI
+
+jobs:
+  xendit-export:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install playwright boto3 pyotp python-dotenv
+
+      - name: Install Playwright Chromium browser
+        run: playwright install chromium --with-deps
+
+      - name: Create output directories
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\xendit_exports"
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\xendit_screenshots"
+        shell: pwsh
+
+      - name: Run Xendit automation
+        run: python xendit_full_automation.py
+        env:
+          HEADLESS: "true"
+          SLOW_MO: "0"
+          DOWNLOAD_DIR: ${{ github.workspace }}\xendit_exports
+          SCREENSHOT_DIR: ${{ github.workspace }}\xendit_screenshots
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xendit-screenshots-${{ github.run_id }}
+          path: ${{ github.workspace }}\xendit_screenshots\
+          retention-days: 7
+
+      - name: Upload downloaded exports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xendit-exports-${{ github.run_id }}
+          path: ${{ github.workspace }}\xendit_exports\
+          retention-days: 14

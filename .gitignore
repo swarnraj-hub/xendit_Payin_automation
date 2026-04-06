@@ -1,0 +1,20 @@
+# Session state (contains login cookies — never commit)
+xendit_session.json
+
+# Downloaded export files
+xendit_exports/
+
+# Debug screenshots
+xendit_screenshots/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# dotenv secrets
+.env
+
+# OS noise
+.DS_Store
+Thumbs.db
