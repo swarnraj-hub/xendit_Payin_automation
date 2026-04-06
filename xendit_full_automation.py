@@ -1073,13 +1073,14 @@ async def switch_account(page, context) -> bool:
             if (el) el.click();
         }
     """)
-    await page.wait_for_timeout(2500)
+    # Wait longer for switcher panel to load in headless CI
+    await page.wait_for_timeout(5000)
     await ss(page, "A2_switch_panel")
 
     # Search by business name first, then email as fallback
     # Try each term; scroll down and retry if not found on first pass
     async def try_click_account(search_term):
-        for scroll_pass in range(3):
+        for scroll_pass in range(5):
             clicked = await page.evaluate(f"""
                 () => {{
                     const tgt = '{search_term}'.toLowerCase();
@@ -1106,7 +1107,7 @@ async def switch_account(page, context) -> bool:
                     if (p) p.scrollTop += 300;
                 }
             """)
-            await page.wait_for_timeout(800)
+            await page.wait_for_timeout(1200)
         return False
 
     clicked = await try_click_account(biz_name)
