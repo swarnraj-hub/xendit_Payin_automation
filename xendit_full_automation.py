@@ -938,7 +938,16 @@ async def switch_account(page, context) -> bool:
     email    = CONFIG["TARGET_ACCOUNT"]    # "onboarding+id@tazapay.com"
     print(f"\n  STEP 2: Switch Business → '{biz_name}' ({email})")
 
-    await page.goto("https://dashboard.xendit.co/home", wait_until="domcontentloaded")
+    for _goto_attempt in range(3):
+        try:
+            await page.goto("https://dashboard.xendit.co/home", wait_until="domcontentloaded", timeout=45000)
+            break
+        except Exception as _e:
+            if _goto_attempt < 2:
+                print(f"  ⚠️  goto home timeout (attempt {_goto_attempt+1}/3), retrying...")
+                await page.wait_for_timeout(3000)
+            else:
+                raise
     # Wait for the sidebar nav to fully render before looking for the account button
     try:
         await page.wait_for_selector('nav, [class*="sidebar"], a[href*="/home"]', timeout=20000)
@@ -1974,6 +1983,13 @@ async def xp_submit_activity_export(page, business_id: str) -> bool:
             pass
     await page.wait_for_timeout(1800)
     await ss(page, f"E2b_transactions_tab_{business_id[:8]}")
+
+    # Wait for the toolbar to fully render in headless mode
+    try:
+        await page.wait_for_selector('button:has-text("Export"), [class*="toolbar"] button', timeout=15000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(2000)
 
     export_opened = False
 
