@@ -41,7 +41,7 @@ jobs:
         run: python xendit_full_automation.py
         env:
           HEADLESS: "true"
-          SLOW_MO: "0"
+          SLOW_MO: "100"
           DOWNLOAD_DIR: ${{ github.workspace }}\xendit_exports
           SCREENSHOT_DIR: ${{ github.workspace }}\xendit_screenshots
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}

@@ -941,10 +941,10 @@ async def switch_account(page, context) -> bool:
     await page.goto("https://dashboard.xendit.co/home", wait_until="domcontentloaded")
     # Wait for the sidebar nav to fully render before looking for the account button
     try:
-        await page.wait_for_selector('nav, [class*="sidebar"], a[href*="/home"]', timeout=15000)
+        await page.wait_for_selector('nav, [class*="sidebar"], a[href*="/home"]', timeout=20000)
     except Exception:
         pass
-    await page.wait_for_timeout(3000)
+    await page.wait_for_timeout(5000)
 
     # Find the account switcher button.
     # In the current Xendit UI it is the bottom-left sidebar element showing
@@ -976,7 +976,7 @@ async def switch_account(page, context) -> bool:
         try:
             el = page.locator(cand).first
             if await el.count() > 0:
-                await el.wait_for(state="visible", timeout=5000)
+                await el.wait_for(state="visible", timeout=15000)
                 profile_sel = cand
                 print(f"  ✅  Profile button found: {cand}")
                 break
@@ -2487,8 +2487,8 @@ async def xenplatform_export(page, context) -> bool:  # noqa: C901
         pass
     for attempt in range(3):
         try:
-            await page.wait_for_selector('tbody tr, table, [class*="account-list"], [class*="AccountList"]', timeout=15000)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_selector('tbody tr, table, [class*="account-list"], [class*="AccountList"]', timeout=30000)
+            await page.wait_for_timeout(3000)
             row_count = await page.evaluate("() => document.querySelectorAll('tbody tr').length")
             print(f"  ✅  Table loaded — {row_count} rows visible")
             break
@@ -2510,7 +2510,7 @@ async def xenplatform_export(page, context) -> bool:  # noqa: C901
     print("  ☑️   Step 3: Clicking header checkbox (Select All visible accounts)...")
     try:
         header_cb = page.locator('thead input[type="checkbox"]').first
-        await header_cb.wait_for(state="visible", timeout=12000)
+        await header_cb.wait_for(state="visible", timeout=30000)
         await header_cb.scroll_into_view_if_needed()
         await header_cb.click(force=True)
         await page.wait_for_timeout(2500)
@@ -2639,7 +2639,7 @@ async def xenplatform_export(page, context) -> bool:  # noqa: C901
         try:
             # The Export button is a blue primary button at the top right
             export_btn = page.locator('button:has-text("Export"):not([disabled])').first
-            await export_btn.wait_for(state="visible", timeout=10000)
+            await export_btn.wait_for(state="visible", timeout=25000)
             await export_btn.scroll_into_view_if_needed()
             await export_btn.click()
             await page.wait_for_timeout(3000)
