@@ -3538,7 +3538,18 @@ async def main():
             if not await do_login(page, context):
                 raise RuntimeError("Xendit login failed")
             if not await switch_account(page, context):
-                raise RuntimeError("Account switch failed")
+                # Saved session may have stale profile in headless — force fresh login
+                print("  ⚠️  Switch failed with cached session — forcing fresh login...")
+                try:
+                    await page.goto("https://dashboard.xendit.co/logout",
+                                    wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
+                await page.wait_for_timeout(3000)
+                if not await do_login(page, context):
+                    raise RuntimeError("Xendit login failed after fresh login")
+                if not await switch_account(page, context):
+                    raise RuntimeError("Account switch failed")
             results["A_xendit_export"] = await xendit_export(page, context)
         except Exception as e:
             print(f"\n❌  PART A failed: {e}")
