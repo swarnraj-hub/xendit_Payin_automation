@@ -4,7 +4,12 @@ on:
   schedule:
     # 02:30 UTC = 08:00 AM IST (UTC+5:30) every day
     - cron: '30 2 * * *'
-  workflow_dispatch:   # allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      skip_s3:
+        description: 'Skip S3 upload (true/false)'
+        required: false
+        default: 'false'
 
 jobs:
   xendit-export:
@@ -43,6 +48,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
           SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+          SKIP_S3: ${{ github.event.inputs.skip_s3 || 'false' }}
 
       - name: Upload screenshots on failure
         if: failure()
