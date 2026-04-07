@@ -113,6 +113,18 @@ CONFIG = {
     "DOWNLOAD_DIR":   os.environ.get("DOWNLOAD_DIR",   r"C:\Users\TazaDH 511\Downloads\xendit_exports"),
     "SCREENSHOT_DIR": os.environ.get("SCREENSHOT_DIR",
                         os.path.join(os.path.dirname(os.path.abspath(__file__)), "xendit_screenshots")),
+
+    # ── Known XenPlatform sub-account Business IDs ────────────────────
+    # Used as a baseline so CI (which has no historical CSVs) always
+    # processes ALL known businesses, not just those in today's report.
+    "KNOWN_BUSINESS_IDS": [
+        {"business_id": "66ab46d13e2d2063fcd266f7", "business_name": "TazapayTebex Limited"},
+        {"business_id": "66abf485d61bd15007a57a8c", "business_name": "TazapaySkinsMonkey"},
+        {"business_id": "66abf7832f6afd970ea568d1", "business_name": "TazapayTurbologo"},
+        {"business_id": "66abf84806c57a3f79778869", "business_name": "TazapayGromenko and Partners Pte Ltd"},
+        {"business_id": "66af743df5210b230c649f0c", "business_name": "TazapayConnectWise Limited"},
+        {"business_id": "66af76959d7d7905fe9916d6", "business_name": "TazapayPersollo Pty Ltd"},
+    ],
 }
 
 # ══════════════════════════════════════════════════════════════════════
@@ -363,23 +375,24 @@ async def ensure_only_export_email(page, target_email: str, input_selectors: lis
     """Remove any existing recipients in the export modal and keep only target_email."""
     target_email = target_email.lower()
 
-    # Explicitly remove Anubhav's email tag first (it is the Xendit account default)
+    # Explicitly remove Anubhav's email tag (Xendit dashboard default recipient).
+    # IMPORTANT: only search inside the modal/dialog — never on document.body
+    # to avoid accidentally clicking unrelated page elements.
     await page.evaluate("""
         () => {
             const modal = document.querySelector('[data-testid="modal"]')
                        || document.querySelector('[role="dialog"]')
-                       || document.querySelector('.modal-content')
-                       || document.body;
+                       || document.querySelector('.modal-content');
+            if (!modal) return;   // no modal open — skip safely
             const anubhavRe = /anubhav/i;
             for (const el of modal.querySelectorAll('div, span, li, p')) {
                 const txt = (el.innerText || el.textContent || '').trim();
-                if (!anubhavRe.test(txt)) continue;
-                // Click remove/close button inside or next to the tag
-                const btn = el.querySelector('button, [role="button"], img, svg, span[aria-label]')
-                         || el.nextElementSibling
+                // Must look like an email chip/tag (short text, contains anubhav)
+                if (!anubhavRe.test(txt) || txt.length > 80) continue;
+                const btn = el.querySelector('button, [role="button"], svg, img[alt*="close" i], span[aria-label*="remove" i]')
+                         || el.nextElementSibling?.tagName === 'BUTTON' ? el.nextElementSibling : null
                          || el.parentElement?.querySelector('button, [role="button"]');
                 if (btn) { btn.click(); return; }
-                el.click();
             }
         }
     """)
@@ -1655,8 +1668,14 @@ def extract_unique_business_ids(csv_path: str) -> list[dict]:
         except Exception:
             pass
 
+    # Always merge with KNOWN_BUSINESS_IDS so CI (no historical CSVs) gets all accounts
+    for entry in CONFIG.get("KNOWN_BUSINESS_IDS", []):
+        bid = entry.get("business_id", "").strip()
+        if bid and bid not in seen:
+            seen[bid] = entry.get("business_name", "")
+
     items = [{"business_id": bid, "business_name": name} for bid, name in seen.items()]
-    print(f"  📊  Business IDs found across {len(candidate_files)} xenplatform file(s): {len(items)} unique")
+    print(f"  📊  Business IDs found across {len(candidate_files)} xenplatform file(s) + known list: {len(items)} unique")
     return items
 
 
