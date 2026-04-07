@@ -50,8 +50,8 @@ jobs:
           SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
           SKIP_S3: ${{ github.event.inputs.skip_s3 || 'false' }}
 
-      - name: Upload screenshots on failure
-        if: failure()
+      - name: Upload screenshots (always for debugging)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xendit-screenshots-${{ github.run_id }}

@@ -1945,6 +1945,14 @@ async def xp_submit_activity_export(page, business_id: str) -> bool:
     print(f"    Opening export for {business_id}...")
     await ss(page, f"E2a_before_transactions_{business_id[:8]}")
 
+    # Wait for the subtab switcher to appear before trying to click Transactions
+    try:
+        await page.wait_for_selector('.xp-activity-subtab-switcher', timeout=12000)
+        print(f"    Subtab switcher found")
+    except Exception:
+        print(f"    ⚠️  Subtab switcher not found within 12s — retrying after page wait...")
+        await page.wait_for_timeout(3000)
+
     transactions_ready = False
     transaction_selectors = [
         '.xp-activity-subtab-switcher [data-testid="tab-switcher-item-1"]',
@@ -1953,45 +1961,55 @@ async def xp_submit_activity_export(page, business_id: str) -> bool:
         'xpath=//*[normalize-space()="Activity"]/following::*[@data-testid="tab-switcher-item-1"][1]',
         'xpath=//*[normalize-space()="Activity"]/following::*[normalize-space()="Transactions"][1]',
     ]
-    for sel in transaction_selectors:
-        try:
-            tab = page.locator(sel).first
-            if await tab.count() > 0 and await tab.is_visible():
-                await tab.scroll_into_view_if_needed()
-                await tab.click(force=True)
-                transactions_ready = True
-                print(f"    Transactions tab opened via: {sel}")
-                break
-        except Exception:
-            pass
-
-    if not transactions_ready:
+    # Retry tab click up to 3 times (headless may need extra time)
+    for _tab_attempt in range(3):
+        for sel in transaction_selectors:
+            try:
+                tab = page.locator(sel).first
+                if await tab.count() > 0 and await tab.is_visible():
+                    await tab.scroll_into_view_if_needed()
+                    await tab.click(force=True)
+                    transactions_ready = True
+                    print(f"    Transactions tab opened via: {sel} (attempt {_tab_attempt+1})")
+                    break
+            except Exception:
+                pass
+        if transactions_ready:
+            break
+        # JS fallback
         try:
             transactions_ready = await page.evaluate("""
                 () => {
                     const visible = el => !!el && (el.offsetParent !== null || el.getClientRects().length > 0);
                     const switcher = document.querySelector('.xp-activity-subtab-switcher')
-                        || Array.from(document.querySelectorAll('div')).find(el => visible(el) && /balance\\s+transactions\\s+credit/i.test(el.innerText || ''));
+                        || Array.from(document.querySelectorAll('div')).find(el => visible(el) && /balance.*transactions/i.test(el.innerText || ''));
                     if (!switcher) return false;
                     const exact = switcher.querySelector('[data-testid="tab-switcher-item-1"]')
                         || switcher.querySelector('.tab-switcher-item-container:nth-of-type(2)')
                         || Array.from(switcher.querySelectorAll('div, button, a, span')).find(el => visible(el) && (el.innerText || '').trim().toLowerCase() === 'transactions');
-                    if (exact && visible(exact)) {
-                        exact.click();
-                        return true;
-                    }
+                    if (exact && visible(exact)) { exact.click(); return true; }
                     return false;
                 }
             """)
         except Exception:
             transactions_ready = False
+        if transactions_ready:
+            print(f"    Transactions tab opened via JS (attempt {_tab_attempt+1})")
+            break
+        print(f"    ⚠️  Tab click attempt {_tab_attempt+1}/3 failed, waiting 2s...")
+        await page.wait_for_timeout(2000)
 
-    if transactions_ready:
-        try:
-            await page.wait_for_selector('input[placeholder*="reference" i], input[placeholder*="search" i]', timeout=12000)
-        except Exception:
-            pass
-    await page.wait_for_timeout(1800)
+    if not transactions_ready:
+        print(f"    ❌  Could not switch to Transactions tab — aborting to avoid wrong export type")
+        await ss(page, f"E2b_tab_fail_{business_id[:8]}")
+        return False
+
+    # Confirm tab switch took effect — wait for Transactions content
+    try:
+        await page.wait_for_selector('input[placeholder*="reference" i], input[placeholder*="search" i]', timeout=12000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(2000)
     await ss(page, f"E2b_transactions_tab_{business_id[:8]}")
 
     # Wait for the toolbar to fully render in headless mode
