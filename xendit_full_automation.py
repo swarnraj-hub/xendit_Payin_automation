@@ -363,6 +363,28 @@ async def ensure_only_export_email(page, target_email: str, input_selectors: lis
     """Remove any existing recipients in the export modal and keep only target_email."""
     target_email = target_email.lower()
 
+    # Explicitly remove Anubhav's email tag first (it is the Xendit account default)
+    await page.evaluate("""
+        () => {
+            const modal = document.querySelector('[data-testid="modal"]')
+                       || document.querySelector('[role="dialog"]')
+                       || document.querySelector('.modal-content')
+                       || document.body;
+            const anubhavRe = /anubhav/i;
+            for (const el of modal.querySelectorAll('div, span, li, p')) {
+                const txt = (el.innerText || el.textContent || '').trim();
+                if (!anubhavRe.test(txt)) continue;
+                // Click remove/close button inside or next to the tag
+                const btn = el.querySelector('button, [role="button"], img, svg, span[aria-label]')
+                         || el.nextElementSibling
+                         || el.parentElement?.querySelector('button, [role="button"]');
+                if (btn) { btn.click(); return; }
+                el.click();
+            }
+        }
+    """)
+    await page.wait_for_timeout(300)
+
     for attempt in range(3):
         await page.evaluate("""
             () => {
@@ -1601,25 +1623,40 @@ def download_from_gmail_imap(label: str, wait_seconds: int = 60,
 # ══════════════════════════════════════════════════════════════════════
 def extract_unique_business_ids(csv_path: str) -> list[dict]:
     """
-    Read the XenPlatform CSV and return unique Business ID / Business Name pairs.
+    Read ALL XenPlatform CSVs in the download folder and return ALL unique
+    Business ID / Business Name pairs ever seen — not just today's file.
+    This ensures businesses with no transactions today still get exported.
     """
-    if not csv_path or not os.path.exists(csv_path):
+    download_dir = CONFIG.get("DOWNLOAD_DIR", "")
+    seen = {}   # business_id -> business_name
+
+    # Collect all xenplatform CSVs (historical + today's)
+    candidate_files = []
+    if download_dir and os.path.isdir(download_dir):
+        for fn in os.listdir(download_dir):
+            if fn.lower().startswith("xenplatform") and fn.lower().endswith(".csv"):
+                candidate_files.append(os.path.join(download_dir, fn))
+    # Also include the explicit csv_path passed in (today's file)
+    if csv_path and os.path.exists(csv_path) and csv_path not in candidate_files:
+        candidate_files.append(csv_path)
+
+    if not candidate_files:
         return []
 
-    items = []
-    seen = set()
-    with open(csv_path, "r", encoding="utf-8-sig", newline="") as fh:
-        reader = csv.DictReader(fh)
-        for row in reader:
-            business_id = (row.get("Business ID") or "").strip()
-            business_name = (row.get("Business Name") or "").strip()
-            if not business_id or business_id in seen:
-                continue
-            seen.add(business_id)
-            items.append({
-                "business_id": business_id,
-                "business_name": business_name,
-            })
+    for fpath in candidate_files:
+        try:
+            with open(fpath, "r", encoding="utf-8-sig", newline="") as fh:
+                reader = csv.DictReader(fh)
+                for row in reader:
+                    business_id = (row.get("Business ID") or "").strip()
+                    business_name = (row.get("Business Name") or "").strip()
+                    if business_id and business_id not in seen:
+                        seen[business_id] = business_name
+        except Exception:
+            pass
+
+    items = [{"business_id": bid, "business_name": name} for bid, name in seen.items()]
+    print(f"  📊  Business IDs found across {len(candidate_files)} xenplatform file(s): {len(items)} unique")
     return items
 
 
