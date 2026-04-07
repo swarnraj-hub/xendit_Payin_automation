@@ -106,7 +106,7 @@ CONFIG = {
 
     # ── Slack Notifications ───────────────────────────────────────────
     "SLACK_TOKEN":   os.environ.get("SLACK_TOKEN",   ""),
-    "SLACK_CHANNEL": os.environ.get("SLACK_CHANNEL", "C0ANN4HTC9L"),
+    "SLACK_CHANNEL": os.environ.get("SLACK_CHANNEL", "D0APLRQ5XSA"),
 
     # ── CI overrides (set via env vars in GitHub Actions) ─────────────
     "HEADLESS": os.environ.get("HEADLESS", "false").lower() == "true",
@@ -126,6 +126,66 @@ CONFIG = {
         {"business_id": "66af76959d7d7905fe9916d6", "business_name": "TazapayPersollo Pty Ltd"},
     ],
 }
+
+# ── Friendly date range string used in output filenames ──────────────
+_DATE_RANGE = (
+    f"{CONFIG['FROM_YEAR']}{CONFIG['FROM_MONTH']:02d}{CONFIG['FROM_DAY']:02d}"
+    f"_{CONFIG['TO_YEAR']}{CONFIG['TO_MONTH']:02d}{CONFIG['TO_DAY']:02d}"
+)
+
+
+def _friendly_name(raw_name: str, date_range: str = _DATE_RANGE) -> str:
+    """
+    Rename a downloaded CSV to a human-readable filename:
+      Part B  (xendit all transactions)  → Xendit_All_transaction_{date_range}.csv
+      Part D  (xenplatform master)       → Xendit_Master_{date_range}.csv
+      Part E  (per account)              → Xendit_{account_name}_{date_range}.csv
+                                           (account_name passed via the label prefix)
+    The label prefix embedded in raw_name drives the choice:
+      starts with 'xendit_'       → All transaction
+      starts with 'xenplatform_'  → Master
+      starts with 'xp_activity_'  → account name extracted from label
+    """
+    if not raw_name:
+        return raw_name
+    base = os.path.basename(raw_name)
+    folder = os.path.dirname(raw_name)
+    if base.startswith("xendit_"):
+        new_base = f"Xendit_All_transaction_{date_range}.csv"
+    elif base.startswith("xenplatform_"):
+        new_base = f"Xendit_Master_{date_range}.csv"
+    else:
+        # xp_activity_{8-char-id}_... → keep going, caller passes account name
+        new_base = base   # will be renamed by caller with account name
+    new_path = os.path.join(folder, new_base)
+    if raw_name != new_path:
+        try:
+            os.replace(raw_name, new_path)
+            print(f"  📄  Renamed → {new_base}")
+        except Exception as e:
+            print(f"  ⚠️  Rename failed: {e}")
+            return raw_name
+    return new_path
+
+
+def _friendly_name_account(raw_name: str, account_name: str,
+                            date_range: str = _DATE_RANGE) -> str:
+    """Rename Part-E file to Xendit_{account_name}_{date_range}.csv"""
+    if not raw_name:
+        return raw_name
+    folder = os.path.dirname(raw_name)
+    safe_name = account_name.strip().replace(" ", "_").replace("/", "-")
+    new_base = f"Xendit_{safe_name}_{date_range}.csv"
+    new_path = os.path.join(folder, new_base)
+    if raw_name != new_path:
+        try:
+            os.replace(raw_name, new_path)
+            print(f"  📄  Renamed → {new_base}")
+        except Exception as e:
+            print(f"  ⚠️  Rename failed: {e}")
+            return raw_name
+    return new_path
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  S3 UPLOAD HELPER
@@ -2479,18 +2539,34 @@ async def xenplatform_activity_exports(page, context, source_csv_path: str) -> d
         print(f"\n  [{idx}/{len(business_rows)}] Business ID: {business_id}  {business_name}")
 
         try:
-            await page.goto("https://dashboard.xendit.co/xenplatform/accounts", wait_until="domcontentloaded")
+            # Navigate directly to the activity page using the Business ID in the URL.
+            # The URL pattern always uses the Business ID, so no row-menu search needed.
+            activity_url = f"https://dashboard.xendit.co/xenplatform/accounts/{business_id}/activity"
+            print(f"    Navigating directly to: {activity_url}")
+            await page.goto(activity_url, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(3000)
             await dismiss_feedback_modal(page)
 
-            await xp_search_business_id(page, business_id, business_name)
-            await ss(page, f"E1_search_{business_id[:10]}")
-
-            activity_page = await xp_open_view_activity(page, context, business_id, business_name)
-            if not activity_page:
-                failed_ids.append(business_id)
-                downloads[business_id] = None
-                continue
+            # Verify we landed on the right page (not redirected to accounts list)
+            current_url = page.url
+            if business_id not in current_url:
+                print(f"    ⚠️  Redirected away from activity page: {current_url}")
+                print(f"    Falling back to row-menu navigation...")
+                await page.goto("https://dashboard.xendit.co/xenplatform/accounts",
+                                wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(3000)
+                await dismiss_feedback_modal(page)
+                await xp_search_business_id(page, business_id, business_name)
+                await ss(page, f"E1_search_{business_id[:10]}")
+                activity_page_obj = await xp_open_view_activity(page, context, business_id, business_name)
+                if not activity_page_obj:
+                    failed_ids.append(business_id)
+                    downloads[business_id] = None
+                    continue
+                activity_page = activity_page_obj
+            else:
+                print(f"    ✅  Activity page loaded: {current_url}")
+                activity_page = page
 
             await dismiss_feedback_modal(activity_page)
             await ss(activity_page, f"E2_activity_{business_id[:10]}")
@@ -2514,17 +2590,23 @@ async def xenplatform_activity_exports(page, context, source_csv_path: str) -> d
                             after_uid=uid_before_export,
                         )
                     )
+                    if downloaded_path:
+                        downloaded_path = _friendly_name_account(
+                            downloaded_path, business_name or business_id
+                        )
                 downloads[business_id] = downloaded_path
                 success += 1
             else:
                 failed_ids.append(business_id)
                 downloads[business_id] = None
 
+            # Close only if a new tab was opened by fallback row-menu navigation
             if activity_page is not page:
                 try:
                     await activity_page.close()
                 except Exception:
                     pass
+                page = await context.new_page()
         except Exception as e:
             print(f"    Activity export failed for {business_id}: {e}")
             failed_ids.append(business_id)
@@ -3692,6 +3774,8 @@ async def main():
                         subject_exclude="xenplatform",
                     )
                 )
+                if file_path:
+                    file_path = _friendly_name(file_path)
                 results["B_xendit_download"] = file_path
             except Exception as e:
                 print(f"\n❌  PART B failed: {e}")
@@ -3717,6 +3801,8 @@ async def main():
                         subject_must="xenplatform",
                     )
                 )
+                if file_path:
+                    file_path = _friendly_name(file_path)
                 results["D_xenplatform_download"] = file_path
             except Exception as e:
                 print(f"\n❌  PART D failed: {e}")
