@@ -66,7 +66,7 @@ except ImportError:
 #  CONFIG
 # ══════════════════════════════════════════════════════════════════════
 _today     = datetime.now()
-_from_date = _today - timedelta(days=6)   # inclusive 7-day window ending today
+_from_date = _today - timedelta(days=7)   # inclusive 8-day window ending today
 
 CONFIG = {
     # ── Xendit Dashboard login (main account) ─────────────────────────
@@ -221,18 +221,65 @@ def slack_notify(success: bool, results: dict = None, error: str = ""):
     channel = CONFIG.get("SLACK_CHANNEL", "")
     if not token or not channel:
         return
-    now_ist = datetime.now().strftime("%d %b %Y %H:%M IST")
+
+    date_range = f"{_from_date.strftime('%d %b %Y')} - {_today.strftime('%d %b %Y')}"
+    now_ist    = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
+
     if success:
-        header = f":white_check_mark: *Xendit Automation — SUCCESS* | {now_ist}"
-        lines  = [header]
-        if results:
-            for key, val in results.items():
-                icon = "✅" if val and val != "SKIPPED" else ("⏭️" if val == "SKIPPED" else "❌")
-                name = str(val)[-60:] if isinstance(val, str) and len(str(val)) > 60 else str(val)
-                lines.append(f"  {icon}  *{key}*: {name}")
+        # ── Count files downloaded ────────────────────────────────────────
+        part_a = results.get("A_xendit_export",       False)
+        part_b = results.get("B_xendit_download",     None)
+        part_c = results.get("C_xenplatform_export",  False)
+        part_d = results.get("D_xenplatform_download",None)
+        part_e = results.get("E_xp_activity_exports", {})
+
+        e_count   = part_e.get("success", 0)  if isinstance(part_e, dict) else 0
+        e_total   = part_e.get("count",   0)  if isinstance(part_e, dict) else 0
+        e_failed  = part_e.get("failed_ids", []) if isinstance(part_e, dict) else []
+
+        b_file = os.path.basename(part_b) if isinstance(part_b, str) else "—"
+        d_file = os.path.basename(part_d) if isinstance(part_d, str) else "—"
+
+        lines = [
+            ":white_check_mark:  *Xendit Daily Export — SUCCESS*",
+            f">  *Date Range:*  {date_range}",
+            f">  *Run Time:*     {now_ist}",
+            "",
+            "*Files Downloaded:*",
+            f"  :page_facing_up:  `{b_file}`",
+            f"  :page_facing_up:  `{d_file}`",
+        ]
+
+        if e_count > 0:
+            lines.append(f"  :page_facing_up:  Sub-account files: *{e_count}* exported")
+            if isinstance(part_e, dict) and part_e.get("downloads"):
+                for bid, fpath in part_e["downloads"].items():
+                    if fpath:
+                        lines.append(f"      :small_blue_diamond:  `{os.path.basename(fpath)}`")
+        else:
+            lines.append("  :small_orange_diamond:  No sub-account transactions this period")
+
+        if e_failed:
+            lines.append(f"\n  :warning:  Failed Business IDs: {', '.join(e_failed)}")
+
+        lines += [
+            "",
+            f":email:  Files sent to `{CONFIG['EXPORT_EMAIL']}`",
+            f":github:  <https://github.com/swarnraj-hub/xendit-automation/actions|View GitHub Actions Run>",
+        ]
+
     else:
-        header = f":x: *Xendit Automation — FAILED* | {now_ist}"
-        lines  = [header, f"  Error: `{error}`" if error else "  Check GitHub Actions logs for details."]
+        lines = [
+            ":x:  *Xendit Daily Export — FAILED*",
+            f">  *Date Range:*  {date_range}",
+            f">  *Run Time:*     {now_ist}",
+            "",
+            f":warning:  *Error:* `{error}`" if error else ":warning:  Check GitHub Actions logs for details.",
+            "",
+            ":github:  <https://github.com/swarnraj-hub/xendit-automation/actions|View GitHub Actions Logs>",
+            f":email:  Exports were being sent to `{CONFIG['EXPORT_EMAIL']}`",
+        ]
+
     text = "\n".join(lines)
     try:
         payload = _json.dumps({"channel": channel, "text": text}).encode()
@@ -244,11 +291,11 @@ def slack_notify(success: bool, results: dict = None, error: str = ""):
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = _json.loads(resp.read())
             if body.get("ok"):
-                print(f"  📣  Slack notified (channel {channel})")
+                print(f"  Slack notified (channel {channel})")
             else:
-                print(f"  ⚠️  Slack error: {body.get('error')}")
+                print(f"  Slack error: {body.get('error')}")
     except Exception as e:
-        print(f"  ⚠️  Slack notify failed: {e}")
+        print(f"  Slack notify failed: {e}")
 
 
 STEALTH_JS = """
