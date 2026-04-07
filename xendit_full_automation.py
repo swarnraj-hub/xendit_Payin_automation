@@ -106,7 +106,7 @@ CONFIG = {
 
     # ── Slack Notifications ───────────────────────────────────────────
     "SLACK_TOKEN":   os.environ.get("SLACK_TOKEN",   ""),
-    "SLACK_CHANNEL": os.environ.get("SLACK_CHANNEL", "D0APLRQ5XSA"),
+    "SLACK_CHANNEL": os.environ.get("SLACK_CHANNEL", "C0ARPKBHL2D"),
 
     # ── CI overrides (set via env vars in GitHub Actions) ─────────────
     "HEADLESS": os.environ.get("HEADLESS", "false").lower() == "true",
@@ -192,9 +192,10 @@ def upload_to_s3(local_path: str) -> bool:
         print("  ⚠️  boto3 not installed — skipping S3 upload")
         return False
     fname = os.path.basename(local_path)
-    # Only upload the two categories the user wants
-    if not (fname.startswith("xendit_ALL_TRANSACTIONS_REPORT_") or
-            fname.startswith("xp_activity_")):
+    # Upload: Xendit_All_transaction_* and Xendit_{AccountName}_* (sub-accounts)
+    # Skip:  Xendit_Master_* (XenPlatform master report — not needed in S3)
+    if not (fname.startswith("Xendit_All_transaction_") or
+            (fname.startswith("Xendit_") and not fname.startswith("Xendit_Master_"))):
         return False
     s3_key = CONFIG["S3_PREFIX"] + fname
     try:
