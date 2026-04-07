@@ -2145,7 +2145,7 @@ async def xp_submit_activity_export(page, business_id: str) -> bool:
         rw_filled = await page.evaluate("""
             () => [...document.querySelectorAll('input[id^="rw_"]')]
                     .filter(el => el.offsetParent !== null &&
-                                  /\d{2}\/\d{2}\/\d{4}/.test((el.value || '').trim()))
+                                  /\\d{2}\\/\\d{2}\\/\\d{4}/.test((el.value || '').trim()))
                     .length
         """)
         if rw_filled >= 2:
