@@ -114,17 +114,6 @@ CONFIG = {
     "SCREENSHOT_DIR": os.environ.get("SCREENSHOT_DIR",
                         os.path.join(os.path.dirname(os.path.abspath(__file__)), "xendit_screenshots")),
 
-    # ── Known XenPlatform sub-account Business IDs ────────────────────
-    # Used as a baseline so CI (which has no historical CSVs) always
-    # processes ALL known businesses, not just those in today's report.
-    "KNOWN_BUSINESS_IDS": [
-        {"business_id": "66ab46d13e2d2063fcd266f7", "business_name": "TazapayTebex Limited"},
-        {"business_id": "66abf485d61bd15007a57a8c", "business_name": "TazapaySkinsMonkey"},
-        {"business_id": "66abf7832f6afd970ea568d1", "business_name": "TazapayTurbologo"},
-        {"business_id": "66abf84806c57a3f79778869", "business_name": "TazapayGromenko and Partners Pte Ltd"},
-        {"business_id": "66af743df5210b230c649f0c", "business_name": "TazapayConnectWise Limited"},
-        {"business_id": "66af76959d7d7905fe9916d6", "business_name": "TazapayPersollo Pty Ltd"},
-    ],
 }
 
 # ── Friendly date range string used in output filenames ──────────────
@@ -1696,46 +1685,31 @@ def download_from_gmail_imap(label: str, wait_seconds: int = 60,
 # ══════════════════════════════════════════════════════════════════════
 def extract_unique_business_ids(csv_path: str) -> list[dict]:
     """
-    Read ALL XenPlatform CSVs in the download folder and return ALL unique
-    Business ID / Business Name pairs ever seen — not just today's file.
-    This ensures businesses with no transactions today still get exported.
+    Read ONLY today's downloaded XenPlatform CSV and return the unique
+    Business ID / Business Name pairs that actually appear in it.
+    Only businesses with real transactions in the date range are exported.
     """
-    download_dir = CONFIG.get("DOWNLOAD_DIR", "")
     seen = {}   # business_id -> business_name
 
-    # Collect all xenplatform CSVs (historical + today's)
-    candidate_files = []
-    if download_dir and os.path.isdir(download_dir):
-        for fn in os.listdir(download_dir):
-            if fn.lower().startswith("xenplatform") and fn.lower().endswith(".csv"):
-                candidate_files.append(os.path.join(download_dir, fn))
-    # Also include the explicit csv_path passed in (today's file)
-    if csv_path and os.path.exists(csv_path) and csv_path not in candidate_files:
-        candidate_files.append(csv_path)
-
-    if not candidate_files:
+    if not csv_path or not os.path.exists(csv_path):
+        print(f"  ⚠️  XenPlatform CSV not found: {csv_path}")
         return []
 
-    for fpath in candidate_files:
-        try:
-            with open(fpath, "r", encoding="utf-8-sig", newline="") as fh:
-                reader = csv.DictReader(fh)
-                for row in reader:
-                    business_id = (row.get("Business ID") or "").strip()
-                    business_name = (row.get("Business Name") or "").strip()
-                    if business_id and business_id not in seen:
-                        seen[business_id] = business_name
-        except Exception:
-            pass
-
-    # Always merge with KNOWN_BUSINESS_IDS so CI (no historical CSVs) gets all accounts
-    for entry in CONFIG.get("KNOWN_BUSINESS_IDS", []):
-        bid = entry.get("business_id", "").strip()
-        if bid and bid not in seen:
-            seen[bid] = entry.get("business_name", "")
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                business_id = (row.get("Business ID") or "").strip()
+                business_name = (row.get("Business Name") or "").strip()
+                if business_id and business_id not in seen:
+                    seen[business_id] = business_name
+    except Exception as e:
+        print(f"  ⚠️  Error reading XenPlatform CSV: {e}")
 
     items = [{"business_id": bid, "business_name": name} for bid, name in seen.items()]
-    print(f"  📊  Business IDs found across {len(candidate_files)} xenplatform file(s) + known list: {len(items)} unique")
+    print(f"  📊  Unique Business IDs in today's XenPlatform report: {len(items)}")
+    for item in items:
+        print(f"       • {item['business_name']} ({item['business_id']})")
     return items
 
 
