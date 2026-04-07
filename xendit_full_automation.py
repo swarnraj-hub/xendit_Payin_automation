@@ -1132,20 +1132,29 @@ async def switch_account(page, context) -> bool:
 async def xendit_export(page, context) -> bool:
     print("\n  STEP 3: Transactions Export")
 
-    await page.goto("https://dashboard.xendit.co/transactions-new", wait_until="domcontentloaded")
-    await page.wait_for_timeout(4000)
+    try:
+        await page.goto("https://dashboard.xendit.co/transactions-new",
+                        wait_until="domcontentloaded", timeout=45000)
+    except Exception as _ge:
+        print(f"  ⚠️  transactions-new goto error: {_ge}")
+    await page.wait_for_timeout(5000)
     await dismiss_feedback_modal(page)
     await recover_unexpected_page(page, "txn")
+    await ss(page, "A3_txn_page")
 
-    for attempt in range(3):
+    for attempt in range(4):
         try:
-            await page.wait_for_selector('[role="tab"]', timeout=15000)
+            await page.wait_for_selector('[role="tab"]', timeout=20000)
+            print(f"  ✅  [role=tab] found (attempt {attempt+1})")
             break
         except Exception:
-            if attempt < 2:
+            print(f"  ⚠️  [role=tab] not found (attempt {attempt+1}/4) — reloading...")
+            await ss(page, f"A3_tab_wait_fail_{attempt+1}")
+            if attempt < 3:
                 await page.reload(wait_until="domcontentloaded")
-                await page.wait_for_timeout(5000)
+                await page.wait_for_timeout(6000)
             else:
+                print("  ❌  Tabs never appeared — aborting Part A")
                 return False
 
     try:
