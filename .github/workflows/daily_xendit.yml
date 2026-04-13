@@ -1,9 +1,6 @@
 name: Daily Xendit Automation
 
 on:
-  schedule:
-    # 02:30 UTC = 08:00 AM IST (UTC+5:30) weekdays only
-    - cron: '30 2 * * 1-5'
   workflow_dispatch:
     inputs:
       skip_s3:
