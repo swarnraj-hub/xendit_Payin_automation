@@ -3491,64 +3491,70 @@ async def xenplatform_export(page, context) -> bool:  # noqa: C901
 
     txn_done = False
 
-    try:
-        txn_radio = page.locator('[data-testid="modal"] input[type="radio"][value="XP_TRANSACTIONS"], [role="dialog"] input[type="radio"][value="XP_TRANSACTIONS"], .modal-content input[type="radio"][value="XP_TRANSACTIONS"]').first
-        if await txn_radio.count() > 0:
-            await txn_radio.click(force=True)
-            print("  ✅  Direct strategy: clicked XP_TRANSACTIONS radio")
-            txn_done = True
-            await page.wait_for_timeout(500)
-    except Exception as e:
-        print(f"  ⚠️  Direct XP_TRANSACTIONS strategy: {e}")
-
     # CRITICAL: All selectors MUST be scoped inside [data-testid="modal"] to
     # avoid clicking the "Transactions" navigation tab in the left sidebar!
     modal_sel = '[data-testid="modal"], [role="dialog"], .modal-content'
 
-    # Strategy A: Playwright — second radio button inside the modal
-    try:
-        modal_radios = page.locator(f'{modal_sel} input[type="radio"]')
-        count = await modal_radios.count()
-        print(f"  🔘  Radios in modal: {count}")
-        if count >= 2:
-            # Transactions is always the 2nd radio (index 1)
-            await modal_radios.nth(1).click(force=True)
-            print(f"  ✅  Strategy A: clicked radio[1] of {count} in modal")
-            txn_done = True
-            await page.wait_for_timeout(500)
-    except Exception as e:
-        print(f"  ⚠️  Strategy A: {e}")
+    # Strategy 1 (BEST): Target directly by value="XP_TRANSACTIONS" — most reliable
+    if not txn_done:
+        try:
+            txn_radio = page.locator(
+                '[data-testid="modal"] input[type="radio"][value="XP_TRANSACTIONS"],'
+                '[role="dialog"] input[type="radio"][value="XP_TRANSACTIONS"],'
+                '.modal-content input[type="radio"][value="XP_TRANSACTIONS"]'
+            ).first
+            if await txn_radio.count() > 0:
+                await txn_radio.click(force=True)
+                print("  ✅  Strategy 1: clicked XP_TRANSACTIONS radio by value")
+                txn_done = True
+                await page.wait_for_timeout(500)
+        except Exception as e:
+            print(f"  ⚠️  Strategy 1 (by value): {e}")
 
-    # Strategy B: click the label text "Transactions" WITHIN the modal only
+    # Strategy 2: JS — find radio whose value or label contains 'transaction' (case-insensitive)
+    # Avoids the index assumption — safe even when modal has 4+ radios
+    if not txn_done:
+        result2 = await page.evaluate(f"""
+            () => {{
+                const modal = document.querySelector('[data-testid="modal"]')
+                           || document.querySelector('[role="dialog"]')
+                           || document.querySelector('.modal-content');
+                if (!modal) return 'no modal';
+                const radios = Array.from(modal.querySelectorAll('input[type="radio"]'));
+                console.log('Radios found:', radios.length, radios.map(r => r.value));
+                for (const r of radios) {{
+                    // Match by radio value
+                    if (r.value && r.value.toUpperCase().includes('TRANSACTION')) {{
+                        r.click();
+                        return 'clicked by value: ' + r.value;
+                    }}
+                    // Match by associated label text
+                    const lbl = r.id ? document.querySelector('label[for="' + r.id + '"]') : null;
+                    const labelText = lbl ? lbl.innerText : (r.closest('label') ? r.closest('label').innerText : '');
+                    if (labelText.toLowerCase().includes('transaction')) {{
+                        r.click();
+                        return 'clicked by label: ' + labelText.trim();
+                    }}
+                }}
+                return 'XP_TRANSACTIONS radio not found among ' + radios.length + ' radios';
+            }}
+        """)
+        print(f"  ✅  Strategy 2 (JS by label/value): {result2}")
+        if "clicked" in result2:
+            txn_done = True
+        await page.wait_for_timeout(500)
+
+    # Strategy 3 (fallback): click label text "Transactions" scoped inside modal
     if not txn_done:
         try:
             txn_label = page.locator(modal_sel).get_by_text('Transactions', exact=True)
             if await txn_label.count() > 0:
                 await txn_label.first.click(force=True)
-                print("  ✅  Strategy B: clicked 'Transactions' label in modal")
+                print("  ✅  Strategy 3: clicked 'Transactions' label in modal")
                 txn_done = True
                 await page.wait_for_timeout(500)
         except Exception as e:
-            print(f"  ⚠️  Strategy B: {e}")
-
-    # Strategy C: JS — scope to modal, find radio by sibling/label text
-    if not txn_done:
-        result3 = await page.evaluate(f"""
-            () => {{
-                const modal = document.querySelector('{modal_sel}')
-                           || document.querySelector('.modal-content');
-                if (!modal) return 'no modal';
-                const radios = Array.from(modal.querySelectorAll('input[type="radio"]'));
-                if (radios.length >= 2) {{
-                    radios[1].click();
-                    return 'JS radio[1] of ' + radios.length;
-                }}
-                return 'only ' + radios.length + ' radios';
-            }}
-        """)
-        print(f"  ✅  Strategy C: {result3}")
-        txn_done = True
-        await page.wait_for_timeout(500)
+            print(f"  ⚠️  Strategy 3: {e}")
 
     # Verify: read which radio is now checked (scoped to modal)
     checked_lbl = await page.evaluate(f"""
